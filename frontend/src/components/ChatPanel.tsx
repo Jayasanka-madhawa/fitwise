@@ -43,7 +43,7 @@ export default function ChatPanel({
         aria-hidden
       />
 
-      <aside className="fixed bottom-0 left-0 top-[57px] z-50 flex w-full flex-col border-r border-slate-200 bg-white shadow-2xl md:w-[380px]">
+      <aside className="fixed bottom-0 left-0 top-[6.75rem] z-50 flex w-full flex-col border-r border-slate-200 bg-white shadow-2xl sm:top-[7rem] lg:top-[3.75rem] lg:w-[380px]">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">FitWise AI Assistant</h2>
