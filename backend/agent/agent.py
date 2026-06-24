@@ -18,11 +18,22 @@ MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 MAX_HISTORY_MESSAGES = 10
 MAX_HISTORY_CHARS = 400
 
-FILLER_WORDS = {
-    "a", "an", "the", "for", "me", "my", "please", "some", "any", "can", "you",
-    "i", "am", "is", "are", "do", "show", "find", "search", "suggest", "recommend",
-    "looking", "want", "need", "what", "about", "give", "get", "help", "with",
-}
+FILLER_WORDS = frozenset({
+    "a", "an", "the", "for", "me", "my", "your", "we", "our", "us",
+    "i", "am", "is", "are", "was", "be", "been", "being", "do", "does", "did",
+    "can", "could", "would", "should", "will", "may", "might", "must",
+    "you", "he", "she", "it", "they", "them", "this", "that", "these", "those",
+    "please", "some", "any", "show", "find", "search", "suggest", "recommend",
+    "looking", "look", "want", "need", "what", "about", "give", "get", "help", "with",
+    "buy", "purchase", "order", "shop", "shopping", "see", "tell", "know",
+    "something", "thing", "things", "items", "item", "product", "products", "stuff",
+    "to", "of", "in", "on", "at", "from", "into", "up", "down", "out", "off", "over",
+    "under", "between", "through", "during", "before", "after", "above", "below",
+    "and", "or", "but", "so", "if", "when", "where", "how", "why", "which", "who",
+    "hi", "hello", "thanks", "thank", "ok", "okay", "yes", "no", "yeah",
+    "fitwise", "just", "also", "really", "very", "good", "best", "nice", "new",
+    "like", "love", "interested", "thinking", "maybe", "someone",
+})
 
 TOOL_RETRY_HINT = (
     "Your last tool call was invalid. Call tools with valid JSON arguments only. "
@@ -83,10 +94,21 @@ def is_rate_limit_error(exc: Exception) -> bool:
     return "rate_limit" in text or "rate limit" in text
 
 
-def _extract_search_query(message: str) -> str:
+def _keyword_candidates(message: str) -> list[str]:
     words = re.findall(r"[a-z0-9]+", message.lower())
     keywords = [w for w in words if w not in FILLER_WORDS and len(w) > 1]
-    return " ".join(keywords) if keywords else message.strip()
+    if not keywords:
+        stripped = message.strip()
+        return [stripped] if stripped else []
+    # Prefer longer, more specific terms (e.g. "watch" over "buy")
+    unique = list(dict.fromkeys(keywords))
+    unique.sort(key=len, reverse=True)
+    return unique
+
+
+def _extract_search_query(message: str) -> str:
+    candidates = _keyword_candidates(message)
+    return " ".join(candidates) if candidates else message.strip()
 
 
 def _slim_product(product: dict) -> dict:
@@ -126,8 +148,17 @@ def _slim_tool_result(name: str, result) -> object:
 
 
 def _search_fallback(db: Session, query: str, note: str | None = None) -> dict:
-    search_query = _extract_search_query(query) or query.strip()
+    candidates = _keyword_candidates(query)
+    search_query = " ".join(candidates) if candidates else query.strip()
     products = product_service.search_products(db, query=search_query, limit=8)
+
+    if not products and candidates:
+        for kw in candidates:
+            products = product_service.search_products(db, query=kw, limit=8)
+            if products:
+                search_query = kw
+                break
+
     reply = _format_products_reply(search_query, products)
     if note:
         reply = f"{note}\n\n{reply}"
@@ -143,8 +174,8 @@ def _rate_limit_fallback(db: Session, message: str) -> dict:
         db,
         message,
         note=(
-            "FitWise AI hit its Groq daily token limit, so this reply uses direct product search. "
-            "Wait a few minutes or upgrade your Groq plan, then try again for full AI help."
+            "AI is on Groq’s daily limit — showing direct search results. "
+            "Full assistant chat returns after the limit resets."
         ),
     )
 
