@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Header from "@/components/Header";
 import { useAuth } from "@/context/AuthContext";
+import { useChat } from "@/context/ChatContext";
 import { addToCart, fetchProduct, formatPrice } from "@/lib/api";
 import type { Product } from "@/lib/types";
 
@@ -13,6 +14,7 @@ export default function ProductPage() {
   const params = useParams<{ id: string }>();
   const productId = params.id;
   const { refreshCart, requireAuth } = useAuth();
+  const { chatOpen } = useChat();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,15 +46,9 @@ export default function ProductPage() {
 
   return (
     <div className="min-h-screen bg-[#eaeded]">
-      <Header
-        searchQuery=""
-        onSearchChange={() => {}}
-        onSearchSubmit={() => {}}
-        chatOpen={false}
-        onToggleChat={() => {}}
-      />
+      <Header />
 
-      <div className="mx-auto max-w-5xl px-4 py-8">
+      <div className={`mx-auto max-w-5xl px-4 py-8 ${chatOpen ? "md:pl-[396px]" : ""}`}>
         <Link href="/" className="text-sm font-medium text-violet-600 hover:text-violet-700">
           ← Back to shop
         </Link>

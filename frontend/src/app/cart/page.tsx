@@ -6,12 +6,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import { useAuth } from "@/context/AuthContext";
+import { useChat } from "@/context/ChatContext";
 import { fetchCart, formatPrice, removeFromCart } from "@/lib/api";
 import type { Cart } from "@/lib/types";
 
 export default function CartPage() {
   const router = useRouter();
   const { user, loading: authLoading, refreshCart } = useAuth();
+  const { chatOpen } = useChat();
   const [cart, setCart] = useState<Cart | null>(null);
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -52,14 +54,10 @@ export default function CartPage() {
   if (authLoading || !user) {
     return (
       <div className="min-h-screen bg-[#eaeded]">
-        <Header
-          searchQuery=""
-          onSearchChange={() => {}}
-          onSearchSubmit={() => {}}
-          chatOpen={false}
-          onToggleChat={() => {}}
-        />
-        <div className="mx-auto max-w-4xl px-4 py-16 text-center text-slate-600">
+        <Header />
+        <div
+          className={`mx-auto max-w-4xl px-4 py-16 text-center text-slate-600 ${chatOpen ? "md:pl-[396px]" : ""}`}
+        >
           Loading...
         </div>
       </div>
@@ -68,15 +66,9 @@ export default function CartPage() {
 
   return (
     <div className="min-h-screen bg-[#eaeded]">
-      <Header
-        searchQuery=""
-        onSearchChange={() => {}}
-        onSearchSubmit={() => {}}
-        chatOpen={false}
-        onToggleChat={() => {}}
-      />
+      <Header />
 
-      <div className="mx-auto max-w-4xl px-4 py-8">
+      <div className={`mx-auto max-w-4xl px-4 py-8 ${chatOpen ? "md:pl-[396px]" : ""}`}>
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-slate-900">Shopping Cart</h1>
           <Link href="/" className="text-sm font-medium text-violet-600 hover:text-violet-700">

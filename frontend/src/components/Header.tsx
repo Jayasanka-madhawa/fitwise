@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { FormEvent, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { useChat } from "@/context/ChatContext";
 
 interface HeaderProps {
-  searchQuery: string;
-  onSearchChange: (value: string) => void;
-  onSearchSubmit: () => void;
-  chatOpen: boolean;
-  onToggleChat: () => void;
+  searchQuery?: string;
+  onSearchChange?: (value: string) => void;
+  onSearchSubmit?: () => void;
 }
 
 function CartIcon() {
@@ -34,17 +34,26 @@ function SparkleIcon() {
 }
 
 export default function Header({
-  searchQuery,
+  searchQuery: controlledQuery,
   onSearchChange,
   onSearchSubmit,
-  chatOpen,
-  onToggleChat,
 }: HeaderProps) {
+  const router = useRouter();
   const { user, cartCount, logout } = useAuth();
+  const { chatOpen, toggleChat } = useChat();
+  const [localQuery, setLocalQuery] = useState("");
+
+  const searchQuery = controlledQuery ?? localQuery;
+  const handleSearchChange = onSearchChange ?? setLocalQuery;
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    onSearchSubmit();
+    if (onSearchSubmit) {
+      onSearchSubmit();
+      return;
+    }
+    const q = searchQuery.trim();
+    router.push(q ? `/?q=${encodeURIComponent(q)}` : "/");
   };
 
   const aiButtonClass = chatOpen
@@ -56,7 +65,7 @@ export default function Header({
       <input
         type="search"
         value={searchQuery}
-        onChange={(e) => onSearchChange(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
         placeholder="Search fashion products..."
         aria-label="Search products"
         className="min-w-0 flex-1 rounded-l-md border-0 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-violet-500 sm:px-4 sm:py-2.5"
@@ -85,7 +94,7 @@ export default function Header({
           {/* Desktop AI toggle */}
           <button
             type="button"
-            onClick={onToggleChat}
+            onClick={toggleChat}
             className={`order-2 hidden shrink-0 items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium lg:inline-flex ${aiButtonClass}`}
           >
             <SparkleIcon />
@@ -98,7 +107,7 @@ export default function Header({
             {/* Mobile AI toggle */}
             <button
               type="button"
-              onClick={onToggleChat}
+              onClick={toggleChat}
               aria-label={chatOpen ? "Close AI assistant" : "Open AI assistant"}
               className={`inline-flex items-center gap-1 rounded-md px-2.5 py-2 text-xs font-semibold lg:hidden ${aiButtonClass}`}
             >

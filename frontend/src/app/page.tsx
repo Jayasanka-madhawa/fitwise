@@ -1,34 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import ChatPanel from "@/components/ChatPanel";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import FilterSidebar from "@/components/FilterSidebar";
 import Header from "@/components/Header";
 import ProductCard from "@/components/ProductCard";
-import {
-  addToCart,
-  fetchDepartments,
-  searchProducts,
-  sendChatMessage,
-  type ChatHistoryItem,
-} from "@/lib/api";
-import type { ChatMessage, Department, Product, ProductFilters } from "@/lib/types";
+import { addToCart, fetchDepartments, searchProducts } from "@/lib/api";
+import type { Department, Product, ProductFilters } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
+import { useChat } from "@/context/ChatContext";
 
 const PAGE_SIZE = 24;
-
-function toChatHistory(messages: ChatMessage[]): ChatHistoryItem[] {
-  return messages.map((msg) => {
-    let content = msg.content;
-    if (msg.role === "assistant" && msg.products?.length) {
-      const productList = msg.products
-        .map((p, i) => `${i + 1}) ${p.title} (id: ${p.product_id})`)
-        .join("; ");
-      content = `${content}\n[Products shown: ${productList}]`;
-    }
-    return { role: msg.role, content };
-  });
-}
 
 const emptyFilters: ProductFilters = {
   q: "",
@@ -39,6 +21,14 @@ const emptyFilters: ProductFilters = {
 };
 
 export default function HomePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#eaeded]" />}>
+      <HomePageContent />
+    </Suspense>
+  );
+}
+
+function HomePageContent() {
   const [filters, setFilters] = useState<ProductFilters>(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState<ProductFilters>(emptyFilters);
   const [searchInput, setSearchInput] = useState("");
@@ -52,12 +42,9 @@ export default function HomePage() {
   const [addingId, setAddingId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-
+  const searchParams = useSearchParams();
   const { refreshCart, requireAuth } = useAuth();
+  const { chatOpen, setChatOpen } = useChat();
 
   const loadProducts = useCallback(
     async (nextFilters: ProductFilters, nextOffset: number, append: boolean) => {
@@ -86,6 +73,15 @@ export default function HomePage() {
       .then(setDepartments)
       .catch(() => setDepartments([]));
   }, []);
+
+  useEffect(() => {
+    const q = searchParams.get("q")?.trim();
+    if (!q) return;
+    setSearchInput(q);
+    const next = { ...emptyFilters, q };
+    setFilters(next);
+    setAppliedFilters(next);
+  }, [searchParams]);
 
   useEffect(() => {
     loadProducts(appliedFilters, 0, false);
@@ -125,48 +121,12 @@ export default function HomePage() {
     }
   };
 
-  const handleSendChat = async () => {
-    const message = chatInput.trim();
-    if (!message || chatLoading) return;
-
-    const history = toChatHistory(chatMessages);
-
-    setChatInput("");
-    setChatMessages((prev) => [...prev, { role: "user", content: message }]);
-    setChatLoading(true);
-
-    try {
-      const result = await sendChatMessage(message, history);
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: result.reply,
-          products: result.products?.length ? result.products : undefined,
-        },
-      ]);
-      await refreshCart();
-    } catch (err) {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: err instanceof Error ? err.message : "Sorry, something went wrong.",
-        },
-      ]);
-    } finally {
-      setChatLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-[#eaeded]">
       <Header
         searchQuery={searchInput}
         onSearchChange={setSearchInput}
         onSearchSubmit={applySearch}
-        chatOpen={chatOpen}
-        onToggleChat={() => setChatOpen((v) => !v)}
       />
 
       <div className={`mx-auto max-w-[1600px] px-4 py-6 ${chatOpen ? "md:pl-[396px]" : ""}`}>
@@ -244,18 +204,6 @@ export default function HomePage() {
           </main>
         </div>
       </div>
-
-      <ChatPanel
-        open={chatOpen}
-        onClose={() => setChatOpen(false)}
-        messages={chatMessages}
-        input={chatInput}
-        loading={chatLoading}
-        onInputChange={setChatInput}
-        onSend={handleSendChat}
-        onAddToCart={handleAddToCart}
-        addingProductId={addingId}
-      />
 
       {toast && (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white shadow-lg">
