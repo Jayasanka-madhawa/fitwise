@@ -10,11 +10,25 @@ import {
   fetchDepartments,
   searchProducts,
   sendChatMessage,
+  type ChatHistoryItem,
 } from "@/lib/api";
 import type { ChatMessage, Department, Product, ProductFilters } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 
 const PAGE_SIZE = 24;
+
+function toChatHistory(messages: ChatMessage[]): ChatHistoryItem[] {
+  return messages.map((msg) => {
+    let content = msg.content;
+    if (msg.role === "assistant" && msg.products?.length) {
+      const productList = msg.products
+        .map((p, i) => `${i + 1}) ${p.title} (id: ${p.product_id})`)
+        .join("; ");
+      content = `${content}\n[Products shown: ${productList}]`;
+    }
+    return { role: msg.role, content };
+  });
+}
 
 const emptyFilters: ProductFilters = {
   q: "",
@@ -115,12 +129,14 @@ export default function HomePage() {
     const message = chatInput.trim();
     if (!message || chatLoading) return;
 
+    const history = toChatHistory(chatMessages);
+
     setChatInput("");
     setChatMessages((prev) => [...prev, { role: "user", content: message }]);
     setChatLoading(true);
 
     try {
-      const result = await sendChatMessage(message);
+      const result = await sendChatMessage(message, history);
       setChatMessages((prev) => [
         ...prev,
         {

@@ -1,7 +1,8 @@
 import json
 import os
+import re
 
-from openai import BadRequestError, OpenAI
+from openai import APIStatusError, BadRequestError, OpenAI, RateLimitError
 from sqlalchemy.orm import Session
 
 from backend.agent.prompts import SYSTEM_PROMPT
@@ -13,6 +14,15 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1",
 )
 MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+MAX_HISTORY_MESSAGES = 10
+MAX_HISTORY_CHARS = 400
+
+FILLER_WORDS = {
+    "a", "an", "the", "for", "me", "my", "please", "some", "any", "can", "you",
+    "i", "am", "is", "are", "do", "show", "find", "search", "suggest", "recommend",
+    "looking", "want", "need", "what", "about", "give", "get", "help", "with",
+}
 
 TOOL_RETRY_HINT = (
     "Your last tool call was invalid. Call tools with valid JSON arguments only. "
@@ -64,12 +74,78 @@ def _agent_response(reply: str, tools_used: list, products: list[dict]) -> dict:
     }
 
 
-def _search_fallback(db: Session, query: str) -> dict:
-    products = product_service.search_products(db, query=query, limit=8)
+def is_rate_limit_error(exc: Exception) -> bool:
+    if isinstance(exc, RateLimitError):
+        return True
+    if isinstance(exc, APIStatusError) and exc.status_code == 429:
+        return True
+    text = str(exc).lower()
+    return "rate_limit" in text or "rate limit" in text
+
+
+def _extract_search_query(message: str) -> str:
+    words = re.findall(r"[a-z0-9]+", message.lower())
+    keywords = [w for w in words if w not in FILLER_WORDS and len(w) > 1]
+    return " ".join(keywords) if keywords else message.strip()
+
+
+def _slim_product(product: dict) -> dict:
+    return {
+        "product_id": product.get("product_id"),
+        "title": product.get("title"),
+        "brand": product.get("brand"),
+        "price": product.get("price"),
+        "currency": product.get("currency"),
+        "average_rating": product.get("average_rating"),
+        "review_count": product.get("review_count"),
+        "department_final": product.get("department_final"),
+    }
+
+
+def _slim_tool_result(name: str, result) -> object:
+    if name == "get_product_details" and isinstance(result, dict):
+        return _slim_product(result)
+    if name in PRODUCT_TOOLS and isinstance(result, list):
+        return [_slim_product(p) for p in result[:8] if isinstance(p, dict)]
+    if name == "get_cart" and isinstance(result, dict):
+        items = result.get("items") or []
+        return {
+            "item_count": result.get("item_count"),
+            "total_lkr": result.get("total_lkr"),
+            "items": [
+                {
+                    "product_id": i.get("product_id"),
+                    "title": i.get("title"),
+                    "quantity": i.get("quantity"),
+                    "price": i.get("price"),
+                }
+                for i in items[:10]
+            ],
+        }
+    return result
+
+
+def _search_fallback(db: Session, query: str, note: str | None = None) -> dict:
+    search_query = _extract_search_query(query) or query.strip()
+    products = product_service.search_products(db, query=search_query, limit=8)
+    reply = _format_products_reply(search_query, products)
+    if note:
+        reply = f"{note}\n\n{reply}"
     return _agent_response(
-        _format_products_reply(query, products),
-        [{"tool": "search_products", "args": {"query": query}}],
+        reply,
+        [{"tool": "search_products", "args": {"query": search_query}}],
         products,
+    )
+
+
+def _rate_limit_fallback(db: Session, message: str) -> dict:
+    return _search_fallback(
+        db,
+        message,
+        note=(
+            "FitWise AI hit its Groq daily token limit, so this reply uses direct product search. "
+            "Wait a few minutes or upgrade your Groq plan, then try again for full AI help."
+        ),
     )
 
 
@@ -82,13 +158,36 @@ def _call_llm(messages: list):
     )
 
 
-def run_agent(db: Session, user_id: str, message: str, max_turns: int = 5) -> dict:
+def _normalize_history(history: list[dict] | None) -> list[dict]:
+    """Keep recent user/assistant turns for follow-up context."""
+    if not history:
+        return []
+
+    normalized: list[dict] = []
+    for item in history[-MAX_HISTORY_MESSAGES:]:
+        role = item.get("role")
+        content = (item.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            if len(content) > MAX_HISTORY_CHARS:
+                content = content[:MAX_HISTORY_CHARS] + "…"
+            normalized.append({"role": role, "content": content})
+    return normalized
+
+
+def run_agent(
+    db: Session,
+    user_id: str,
+    message: str,
+    history: list[dict] | None = None,
+    max_turns: int = 5,
+) -> dict:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
             "role": "system",
             "content": f"Current user_id for cart tools: {user_id}",
         },
+        *_normalize_history(history),
         {"role": "user", "content": message},
     ]
 
@@ -98,14 +197,22 @@ def run_agent(db: Session, user_id: str, message: str, max_turns: int = 5) -> di
     for _ in range(max_turns):
         try:
             response = _call_llm(messages)
-        except BadRequestError as exc:
+        except Exception as exc:
+            if is_rate_limit_error(exc):
+                return _rate_limit_fallback(db, message)
+            if not isinstance(exc, BadRequestError):
+                raise
             if "tool_use_failed" not in str(exc):
                 raise
             messages.append({"role": "system", "content": TOOL_RETRY_HINT})
             try:
                 response = _call_llm(messages)
-            except BadRequestError:
-                return _search_fallback(db, message.strip())
+            except Exception as retry_exc:
+                if is_rate_limit_error(retry_exc):
+                    return _rate_limit_fallback(db, message)
+                if isinstance(retry_exc, BadRequestError):
+                    return _search_fallback(db, message)
+                raise
 
         msg = response.choices[0].message
 
@@ -130,7 +237,7 @@ def run_agent(db: Session, user_id: str, message: str, max_turns: int = 5) -> di
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call.id,
-                "content": json.dumps(result),
+                "content": json.dumps(_slim_tool_result(name, result)),
             })
 
     return _agent_response(

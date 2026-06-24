@@ -132,14 +132,20 @@ export async function fetchCart(): Promise<Cart> {
   return request<Cart>("/cart/me", {}, true);
 }
 
+export interface ChatHistoryItem {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export async function sendChatMessage(
   message: string,
+  history: ChatHistoryItem[] = [],
 ): Promise<{ reply: string; tools_used: string[]; products: Product[] }> {
   return request(
     "/chat",
     {
       method: "POST",
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, history }),
     },
     Boolean(getStoredToken()),
   );

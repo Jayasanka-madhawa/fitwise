@@ -9,7 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.database import get_db
 from backend.services import product_service, review_service, cart_service
-from backend.agent.agent import run_agent
+from backend.agent.agent import run_agent, is_rate_limit_error
 from backend.auth import auth_service
 from backend.auth.dependencies import get_current_user, get_optional_user
 
@@ -203,8 +203,13 @@ def cart_get_me(
 ):
     return cart_service.get_cart(db, user["id"])
 
+class ChatHistoryMessage(BaseModel):
+    role: str
+    content: str
+
 class ChatRequest(BaseModel):
     message: str
+    history: list[ChatHistoryMessage] = Field(default_factory=list)
 
 class ChatResponse(BaseModel):
     reply: str
@@ -221,7 +226,12 @@ def chat(
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     user_id = user["id"] if user else "guest"
     try:
-        result = run_agent(db, user_id, body.message)
+        result = run_agent(
+            db,
+            user_id,
+            body.message,
+            history=[m.model_dump() for m in body.history],
+        )
         return result
     except HTTPException:
         raise
@@ -231,6 +241,14 @@ def chat(
             detail="FitWise assistant could not process that request. Try rephrasing, e.g. 'search for shorts'.",
         ) from exc
     except Exception as exc:
+        if is_rate_limit_error(exc):
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "FitWise AI is temporarily unavailable — Groq daily token limit reached. "
+                    "Wait a few minutes, use the search bar, or upgrade at console.groq.com."
+                ),
+            ) from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @app.get("/health")
