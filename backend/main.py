@@ -103,13 +103,6 @@ def auth_github(body: GitHubLoginRequest, db: Session = Depends(get_db)):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@app.get("/auth/providers")
-def auth_providers():
-    return {
-        "google": bool(os.getenv("GOOGLE_CLIENT_ID")),
-        "github": bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET")),
-    }
-
 @app.get("/auth/config")
 def auth_config():
     """Public OAuth client IDs for the frontend (Google client ID is not secret)."""

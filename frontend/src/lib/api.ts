@@ -1,7 +1,7 @@
 import type { AuthResponse } from "./auth-storage";
 import { authHeaders } from "./auth-storage";
 import { getStoredToken } from "./auth-storage";
-import type { Cart, ChatMessage, Department, Product, ProductFilters } from "./types";
+import type { Cart, Department, Product, ProductFilters } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -75,10 +75,6 @@ export async function fetchAuthConfig(): Promise<{
   github_client_id: string;
 }> {
   return request<{ google_client_id: string; github_client_id: string }>("/auth/config");
-}
-
-export async function fetchAuthProviders(): Promise<{ google: boolean; github: boolean }> {
-  return request<{ google: boolean; github: boolean }>("/auth/providers");
 }
 
 export async function fetchMe(): Promise<AuthResponse["user"]> {
@@ -161,5 +157,3 @@ export function truncate(text: string | null | undefined, max = 120): string {
   if (!text) return "";
   return text.length <= max ? text : `${text.slice(0, max).trim()}…`;
 }
-
-export type { ChatMessage };

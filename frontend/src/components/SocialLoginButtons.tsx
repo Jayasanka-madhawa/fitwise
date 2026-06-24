@@ -4,8 +4,6 @@ import { GoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
 import { useEffect, useState } from "react";
 import { fetchAuthConfig } from "@/lib/api";
 
-const ENV_GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
-
 function githubRedirectUri() {
   if (typeof window === "undefined") return "";
   return `${window.location.origin}/login/github/callback`;
@@ -150,19 +148,17 @@ function SocialButtonsInner({
 }
 
 export default function SocialLoginButtons(props: SocialLoginButtonsProps) {
-  const [googleClientId, setGoogleClientId] = useState(ENV_GOOGLE_CLIENT_ID);
-  const [githubClientId, setGithubClientId] = useState(
-    process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID ?? "",
-  );
+  const [googleClientId, setGoogleClientId] = useState("");
+  const [githubClientId, setGithubClientId] = useState("");
 
   useEffect(() => {
     fetchAuthConfig()
       .then((cfg) => {
-        if (cfg.google_client_id) setGoogleClientId(cfg.google_client_id);
-        if (cfg.github_client_id) setGithubClientId(cfg.github_client_id);
+        setGoogleClientId(cfg.google_client_id);
+        setGithubClientId(cfg.github_client_id);
       })
       .catch(() => {
-        /* keep env fallbacks */
+        /* OAuth IDs load from GET /auth/config */
       });
   }, []);
 
