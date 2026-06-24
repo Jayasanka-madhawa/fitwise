@@ -21,6 +21,17 @@ def get_product_details(db: Session, product_id: str):
         return None
     return _row_to_dict(row)
 
+def get_departments(db: Session):
+    sql = text("""
+        SELECT department_final, COUNT(*) AS count
+        FROM products
+        WHERE department_final IS NOT NULL AND department_final != 'unknown'
+        GROUP BY department_final
+        ORDER BY count DESC
+    """)
+    rows = db.execute(sql).fetchall()
+    return [{"department": r.department_final, "count": r.count} for r in rows]
+
 def search_products(
     db: Session,
     query: str | None = None,
@@ -29,9 +40,10 @@ def search_products(
     min_price: float | None = None,
     max_price: float | None = None,
     limit: int = 10,
+    offset: int = 0,
 ):
     conditions = ["1=1"]
-    params = {"limit": limit}
+    params = {"limit": limit, "offset": offset}
 
     if query:
         conditions.append("""
@@ -61,7 +73,7 @@ def search_products(
         FROM products
         WHERE {where_clause}
         ORDER BY popularity_score DESC NULLS LAST
-        LIMIT :limit
+        LIMIT :limit OFFSET :offset
     """)
     rows = db.execute(sql, params).fetchall()
     return [_row_to_dict(r) for r in rows]

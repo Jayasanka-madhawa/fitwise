@@ -1,4 +1,7 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from openai import BadRequestError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -8,6 +11,26 @@ from backend.agent.agent import run_agent
 
 
 app = FastAPI(title="FitWise API", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc) or "Internal server error"},
+    )
 
 # --- Schemas ---
 class CompareRequest(BaseModel):
@@ -23,6 +46,10 @@ class CartRemoveRequest(BaseModel):
     product_id: str
 
 # --- Product routes ---
+@app.get("/products/departments")
+def list_departments(db: Session = Depends(get_db)):
+    return product_service.get_departments(db)
+
 @app.get("/products/search")
 def search_products(
     q: str | None = None,
@@ -30,12 +57,14 @@ def search_products(
     brand: str | None = None,
     min_price: float | None = None,
     max_price: float | None = None,
-    limit: int = Query(default=10, le=50),
+    limit: int = Query(default=24, le=100),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
     return product_service.search_products(
         db, query=q, department_final=department_final,
-        brand=brand, min_price=min_price, max_price=max_price, limit=limit,
+        brand=brand, min_price=min_price, max_price=max_price,
+        limit=limit, offset=offset,
     )
 
 @app.get("/products/most-reviewed")
@@ -105,8 +134,18 @@ class ChatResponse(BaseModel):
 def chat(body: ChatRequest, db: Session = Depends(get_db)):
     if not body.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
-    result = run_agent(db, body.user_id, body.message)
-    return result
+    try:
+        result = run_agent(db, body.user_id, body.message)
+        return result
+    except HTTPException:
+        raise
+    except BadRequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="FitWise assistant could not process that request. Try rephrasing, e.g. 'search for shorts'.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @app.get("/health")
 def health():
