@@ -5,19 +5,18 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Header from "@/components/Header";
-import { addToCart, fetchCart, fetchProduct, formatPrice } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { addToCart, fetchProduct, formatPrice } from "@/lib/api";
 import type { Product } from "@/lib/types";
-import { getUserId } from "@/lib/user";
 
 export default function ProductPage() {
   const params = useParams<{ id: string }>();
   const productId = params.id;
-  const userId = getUserId();
+  const { refreshCart, requireAuth } = useAuth();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
-  const [cartCount, setCartCount] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -27,18 +26,15 @@ export default function ProductPage() {
       .then(setProduct)
       .catch(() => setProduct(null))
       .finally(() => setLoading(false));
-    fetchCart(userId)
-      .then((cart) => setCartCount(cart.item_count))
-      .catch(() => setCartCount(0));
-  }, [productId, userId]);
+  }, [productId]);
 
   const handleAdd = async () => {
     if (!product) return;
+    if (!requireAuth(`/product/${product.product_id}`)) return;
     setAdding(true);
     try {
-      await addToCart(userId, product.product_id);
-      const cart = await fetchCart(userId);
-      setCartCount(cart.item_count);
+      await addToCart(product.product_id);
+      await refreshCart();
       setToast("Added to cart");
       setTimeout(() => setToast(null), 2000);
     } finally {
@@ -52,7 +48,6 @@ export default function ProductPage() {
         searchQuery=""
         onSearchChange={() => {}}
         onSearchSubmit={() => {}}
-        cartCount={cartCount}
         chatOpen={false}
         onToggleChat={() => {}}
       />

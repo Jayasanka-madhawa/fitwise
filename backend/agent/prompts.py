@@ -13,7 +13,7 @@ Tool selection:
 - get_best_popular_products → best popularity_score; supports department_final, max_price
 - get_product_details → one product by product_id
 - summarize_reviews → pros/cons for a product
-- add_to_cart / get_cart → cart actions (use user_id from context)
+- add_to_cart / get_cart → cart actions (use user_id from context; user must be signed in)
 
 When user asks "most reviewed under X LKR", use get_most_reviewed_products with max_price=X.
 Only pass parameters that exist on each tool. Do not invent extra fields.

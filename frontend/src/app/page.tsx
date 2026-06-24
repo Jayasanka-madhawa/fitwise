@@ -7,13 +7,12 @@ import Header from "@/components/Header";
 import ProductCard from "@/components/ProductCard";
 import {
   addToCart,
-  fetchCart,
   fetchDepartments,
   searchProducts,
   sendChatMessage,
 } from "@/lib/api";
 import type { ChatMessage, Department, Product, ProductFilters } from "@/lib/types";
-import { getUserId } from "@/lib/user";
+import { useAuth } from "@/context/AuthContext";
 
 const PAGE_SIZE = 24;
 
@@ -36,7 +35,6 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cartCount, setCartCount] = useState(0);
   const [addingId, setAddingId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -45,16 +43,7 @@ export default function HomePage() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
-  const userId = getUserId();
-
-  const refreshCart = useCallback(async () => {
-    try {
-      const cart = await fetchCart(userId);
-      setCartCount(cart.item_count);
-    } catch {
-      setCartCount(0);
-    }
-  }, [userId]);
+  const { refreshCart, requireAuth } = useAuth();
 
   const loadProducts = useCallback(
     async (nextFilters: ProductFilters, nextOffset: number, append: boolean) => {
@@ -82,8 +71,7 @@ export default function HomePage() {
     fetchDepartments()
       .then(setDepartments)
       .catch(() => setDepartments([]));
-    refreshCart();
-  }, [refreshCart]);
+  }, []);
 
   useEffect(() => {
     loadProducts(appliedFilters, 0, false);
@@ -108,9 +96,10 @@ export default function HomePage() {
   };
 
   const handleAddToCart = async (productId: string) => {
+    if (!requireAuth("/")) return;
     setAddingId(productId);
     try {
-      await addToCart(userId, productId);
+      await addToCart(productId);
       await refreshCart();
       setToast("Added to cart");
       setTimeout(() => setToast(null), 2000);
@@ -131,7 +120,7 @@ export default function HomePage() {
     setChatLoading(true);
 
     try {
-      const result = await sendChatMessage(userId, message);
+      const result = await sendChatMessage(message);
       setChatMessages((prev) => [
         ...prev,
         {
@@ -160,7 +149,6 @@ export default function HomePage() {
         searchQuery={searchInput}
         onSearchChange={setSearchInput}
         onSearchSubmit={applySearch}
-        cartCount={cartCount}
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((v) => !v)}
       />

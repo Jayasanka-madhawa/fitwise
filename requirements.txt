@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+python-dotenv
+openai
+pydantic[email]
+pyjwt
+passlib[bcrypt]
+google-auth

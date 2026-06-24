@@ -3,42 +3,68 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
+import { useAuth } from "@/context/AuthContext";
 import { fetchCart, formatPrice, removeFromCart } from "@/lib/api";
 import type { Cart } from "@/lib/types";
-import { getUserId } from "@/lib/user";
 
 export default function CartPage() {
-  const userId = getUserId();
+  const router = useRouter();
+  const { user, loading: authLoading, refreshCart } = useAuth();
   const [cart, setCart] = useState<Cart | null>(null);
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  const loadCart = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchCart(userId);
-      setCart(data);
-    } catch {
-      setCart(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      router.replace("/login?next=/cart");
+      return;
+    }
+
+    const loadCart = async () => {
+      setLoading(true);
+      try {
+        const data = await fetchCart();
+        setCart(data);
+      } catch {
+        setCart(null);
+      } finally {
+        setLoading(false);
+      }
+    };
     loadCart();
-  }, [userId]);
+  }, [user, authLoading, router]);
 
   const handleRemove = async (productId: string) => {
     setRemovingId(productId);
     try {
-      await removeFromCart(userId, productId);
-      await loadCart();
+      await removeFromCart(productId);
+      const data = await fetchCart();
+      setCart(data);
+      await refreshCart();
     } finally {
       setRemovingId(null);
     }
   };
+
+  if (authLoading || !user) {
+    return (
+      <div className="min-h-screen bg-[#eaeded]">
+        <Header
+          searchQuery=""
+          onSearchChange={() => {}}
+          onSearchSubmit={() => {}}
+          chatOpen={false}
+          onToggleChat={() => {}}
+        />
+        <div className="mx-auto max-w-4xl px-4 py-16 text-center text-slate-600">
+          Loading...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#eaeded]">
@@ -46,7 +72,6 @@ export default function CartPage() {
         searchQuery=""
         onSearchChange={() => {}}
         onSearchSubmit={() => {}}
-        cartCount={cart?.item_count ?? 0}
         chatOpen={false}
         onToggleChat={() => {}}
       />

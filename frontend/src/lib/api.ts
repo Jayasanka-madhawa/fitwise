@@ -1,3 +1,6 @@
+import type { AuthResponse } from "./auth-storage";
+import { authHeaders } from "./auth-storage";
+import { getStoredToken } from "./auth-storage";
 import type { Cart, ChatMessage, Department, Product, ProductFilters } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -13,19 +16,73 @@ function buildQuery(params: Record<string, string | number | undefined>): string
   return qs ? `?${qs}` : "";
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, auth = false): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(auth ? authHeaders() : {}),
       ...init?.headers,
     },
   });
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(detail || `Request failed: ${res.status}`);
+    let detail = await res.text();
+    try {
+      const parsed = JSON.parse(detail);
+      detail = parsed.detail || detail;
+    } catch {
+      /* keep raw text */
+    }
+    throw new Error(typeof detail === "string" ? detail : "Request failed");
   }
   return res.json() as Promise<T>;
+}
+
+export async function registerUser(
+  email: string,
+  password: string,
+  name?: string,
+): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password, name }),
+  });
+}
+
+export async function loginUser(email: string, password: string): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/google", {
+    method: "POST",
+    body: JSON.stringify({ id_token: idToken }),
+  });
+}
+
+export async function loginWithGithub(code: string, redirectUri: string): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/github", {
+    method: "POST",
+    body: JSON.stringify({ code, redirect_uri: redirectUri }),
+  });
+}
+
+export async function fetchAuthConfig(): Promise<{
+  google_client_id: string;
+  github_client_id: string;
+}> {
+  return request<{ google_client_id: string; github_client_id: string }>("/auth/config");
+}
+
+export async function fetchAuthProviders(): Promise<{ google: boolean; github: boolean }> {
+  return request<{ google: boolean; github: boolean }>("/auth/providers");
+}
+
+export async function fetchMe(): Promise<AuthResponse["user"]> {
+  return request<AuthResponse["user"]>("/auth/me", {}, true);
 }
 
 export async function fetchDepartments(): Promise<Department[]> {
@@ -53,39 +110,43 @@ export async function fetchProduct(productId: string): Promise<Product> {
   return request<Product>(`/products/${productId}`);
 }
 
-export async function addToCart(
-  userId: string,
-  productId: string,
-  quantity = 1,
-): Promise<unknown> {
-  return request("/cart/add", {
-    method: "POST",
-    body: JSON.stringify({ user_id: userId, product_id: productId, quantity }),
-  });
+export async function addToCart(productId: string, quantity = 1): Promise<unknown> {
+  return request(
+    "/cart/add",
+    {
+      method: "POST",
+      body: JSON.stringify({ product_id: productId, quantity }),
+    },
+    true,
+  );
 }
 
-export async function removeFromCart(
-  userId: string,
-  productId: string,
-): Promise<unknown> {
-  return request("/cart/remove", {
-    method: "DELETE",
-    body: JSON.stringify({ user_id: userId, product_id: productId }),
-  });
+export async function removeFromCart(productId: string): Promise<unknown> {
+  return request(
+    "/cart/remove",
+    {
+      method: "DELETE",
+      body: JSON.stringify({ product_id: productId }),
+    },
+    true,
+  );
 }
 
-export async function fetchCart(userId: string): Promise<Cart> {
-  return request<Cart>(`/cart/${userId}`);
+export async function fetchCart(): Promise<Cart> {
+  return request<Cart>("/cart/me", {}, true);
 }
 
 export async function sendChatMessage(
-  userId: string,
   message: string,
 ): Promise<{ reply: string; tools_used: string[]; products: Product[] }> {
-  return request("/chat", {
-    method: "POST",
-    body: JSON.stringify({ user_id: userId, message }),
-  });
+  return request(
+    "/chat",
+    {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    },
+    Boolean(getStoredToken()),
+  );
 }
 
 export function formatPrice(price: number, currency = "LKR"): string {

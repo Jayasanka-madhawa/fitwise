@@ -1,13 +1,17 @@
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
+import os
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from openai import BadRequestError
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.database import get_db
 from backend.services import product_service, review_service, cart_service
 from backend.agent.agent import run_agent
+from backend.auth import auth_service
+from backend.auth.dependencies import get_current_user, get_optional_user
 
 
 app = FastAPI(title="FitWise API", version="0.1.0")
@@ -25,6 +29,11 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
@@ -32,18 +41,86 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         content={"detail": str(exc) or "Internal server error"},
     )
 
-# --- Schemas ---
+# --- Auth schemas ---
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    name: str | None = None
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str
+
+class GitHubLoginRequest(BaseModel):
+    code: str
+    redirect_uri: str
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: dict
+
+# --- Product schemas ---
 class CompareRequest(BaseModel):
     product_ids: list[str]
 
 class CartAddRequest(BaseModel):
-    user_id: str
     product_id: str
     quantity: int = 1
 
 class CartRemoveRequest(BaseModel):
-    user_id: str
     product_id: str
+
+# --- Auth routes ---
+@app.post("/auth/register", response_model=AuthResponse)
+def auth_register(body: RegisterRequest, db: Session = Depends(get_db)):
+    try:
+        return auth_service.register_with_email(db, body.email, body.password, body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.post("/auth/login", response_model=AuthResponse)
+def auth_login(body: LoginRequest, db: Session = Depends(get_db)):
+    try:
+        return auth_service.login_with_email(db, body.email, body.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+@app.post("/auth/google", response_model=AuthResponse)
+def auth_google(body: GoogleLoginRequest, db: Session = Depends(get_db)):
+    try:
+        return auth_service.login_with_google(db, body.id_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.post("/auth/github", response_model=AuthResponse)
+def auth_github(body: GitHubLoginRequest, db: Session = Depends(get_db)):
+    try:
+        return auth_service.login_with_github(db, body.code, body.redirect_uri)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.get("/auth/providers")
+def auth_providers():
+    return {
+        "google": bool(os.getenv("GOOGLE_CLIENT_ID")),
+        "github": bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET")),
+    }
+
+@app.get("/auth/config")
+def auth_config():
+    """Public OAuth client IDs for the frontend (Google client ID is not secret)."""
+    return {
+        "google_client_id": os.getenv("GOOGLE_CLIENT_ID", ""),
+        "github_client_id": os.getenv("GITHUB_CLIENT_ID", ""),
+    }
+
+@app.get("/auth/me")
+def auth_me(user: dict = Depends(get_current_user)):
+    return user
 
 # --- Product routes ---
 @app.get("/products/departments")
@@ -109,21 +186,31 @@ def product_reviews(
 def reviews_summary(product_id: str, db: Session = Depends(get_db)):
     return review_service.summarize_reviews(db, product_id)
 
-# --- Cart routes ---
+# --- Cart routes (auth required) ---
 @app.post("/cart/add")
-def cart_add(body: CartAddRequest, db: Session = Depends(get_db)):
-    return cart_service.add_to_cart(db, body.user_id, body.product_id, body.quantity)
+def cart_add(
+    body: CartAddRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    return cart_service.add_to_cart(db, user["id"], body.product_id, body.quantity)
 
 @app.delete("/cart/remove")
-def cart_remove(body: CartRemoveRequest, db: Session = Depends(get_db)):
-    return cart_service.remove_from_cart(db, body.user_id, body.product_id)
+def cart_remove(
+    body: CartRemoveRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    return cart_service.remove_from_cart(db, user["id"], body.product_id)
 
-@app.get("/cart/{user_id}")
-def cart_get(user_id: str, db: Session = Depends(get_db)):
-    return cart_service.get_cart(db, user_id)
+@app.get("/cart/me")
+def cart_get_me(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    return cart_service.get_cart(db, user["id"])
 
 class ChatRequest(BaseModel):
-    user_id: str = "guest"
     message: str
 
 class ChatResponse(BaseModel):
@@ -132,11 +219,16 @@ class ChatResponse(BaseModel):
     products: list = []
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(body: ChatRequest, db: Session = Depends(get_db)):
+def chat(
+    body: ChatRequest,
+    db: Session = Depends(get_db),
+    user: dict | None = Depends(get_optional_user),
+):
     if not body.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+    user_id = user["id"] if user else "guest"
     try:
-        result = run_agent(db, body.user_id, body.message)
+        result = run_agent(db, user_id, body.message)
         return result
     except HTTPException:
         raise
