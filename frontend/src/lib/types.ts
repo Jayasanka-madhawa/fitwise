@@ -42,6 +42,7 @@ export interface Cart {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  products?: Product[];
 }
 
 export interface ProductFilters {

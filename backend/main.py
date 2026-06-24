@@ -129,6 +129,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     tools_used: list
+    products: list = []
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest, db: Session = Depends(get_db)):

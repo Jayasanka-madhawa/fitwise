@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import ChatProductCard from "@/components/ChatProductCard";
 import type { ChatMessage } from "@/lib/types";
 
 interface ChatPanelProps {
@@ -11,6 +12,8 @@ interface ChatPanelProps {
   loading: boolean;
   onInputChange: (value: string) => void;
   onSend: () => void;
+  onAddToCart: (productId: string) => Promise<void>;
+  addingProductId: string | null;
 }
 
 export default function ChatPanel({
@@ -21,6 +24,8 @@ export default function ChatPanel({
   loading,
   onInputChange,
   onSend,
+  onAddToCart,
+  addingProductId,
 }: ChatPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -57,25 +62,36 @@ export default function ChatPanel({
           {messages.length === 0 && (
             <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
               Hi, I&apos;m FitWise. I can help you find products, compare items, summarize
-              reviews, and manage your cart. Try: &quot;Show popular women shoes under 10000
-              LKR&quot;
+              reviews, and manage your cart. Try: &quot;boys shorts under 5000 LKR&quot;
             </div>
           )}
 
           {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[90%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-violet-600 text-white"
-                    : "bg-slate-100 text-slate-800"
-                }`}
-              >
-                <p className="whitespace-pre-wrap">{msg.content}</p>
-              </div>
+            <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
+              {msg.content && (
+                <div
+                  className={`max-w-[95%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                    msg.role === "user"
+                      ? "bg-violet-600 text-white"
+                      : "bg-slate-100 text-slate-800"
+                  }`}
+                >
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                </div>
+              )}
+
+              {msg.role === "assistant" && msg.products && msg.products.length > 0 && (
+                <div className="mt-2 w-full max-w-[95%] space-y-2">
+                  {msg.products.map((product) => (
+                    <ChatProductCard
+                      key={product.product_id}
+                      product={product}
+                      onAddToCart={onAddToCart}
+                      adding={addingProductId === product.product_id}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           ))}
 

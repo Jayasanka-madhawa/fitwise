@@ -81,7 +81,7 @@ export async function fetchCart(userId: string): Promise<Cart> {
 export async function sendChatMessage(
   userId: string,
   message: string,
-): Promise<{ reply: string; tools_used: string[] }> {
+): Promise<{ reply: string; tools_used: string[]; products: Product[] }> {
   return request("/chat", {
     method: "POST",
     body: JSON.stringify({ user_id: userId, message }),

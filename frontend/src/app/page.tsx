@@ -132,7 +132,14 @@ export default function HomePage() {
 
     try {
       const result = await sendChatMessage(userId, message);
-      setChatMessages((prev) => [...prev, { role: "assistant", content: result.reply }]);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: result.reply,
+          products: result.products?.length ? result.products : undefined,
+        },
+      ]);
       await refreshCart();
     } catch (err) {
       setChatMessages((prev) => [
@@ -242,6 +249,8 @@ export default function HomePage() {
         loading={chatLoading}
         onInputChange={setChatInput}
         onSend={handleSendChat}
+        onAddToCart={handleAddToCart}
+        addingProductId={addingId}
       />
 
       {toast && (
