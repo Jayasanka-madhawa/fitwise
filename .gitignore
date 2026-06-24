@@ -1,0 +1,38 @@
+# environment secrets
+.env
+.env.local
+
+# mac
+.DS_Store
+
+# python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# datasets / large files
+data/full/
+data/raw/
+data/processed/
+*.csv
+*.jsonl
+*.jsonl.gz
+*.parquet
+*.zip
+*.gz
+
+# allow small samples only
+!data/sample/
+!data/sample/*.csv
+!data/sample/*.json
+
+# frontend
+node_modules/
+.next/
+dist/
+build/
+
+# docker/db
+postgres_data/
+*.db
