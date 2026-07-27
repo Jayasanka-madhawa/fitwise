@@ -4,6 +4,7 @@ sqlalchemy
 psycopg2-binary
 python-dotenv
 openai
+langsmith
 pydantic[email]
 pyjwt
 passlib[bcrypt]
