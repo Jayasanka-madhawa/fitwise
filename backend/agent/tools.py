@@ -5,6 +5,9 @@ from sqlalchemy.orm import Session
 
 from backend.services import product_service, review_service, cart_service
 
+from langsmith import traceable
+
+
 def _json_safe(obj):
     """Convert DB types for LLM JSON."""
     if isinstance(obj, Decimal):
@@ -171,7 +174,7 @@ _BEST_POPULAR_KEYS = {"department_final", "min_reviews", "limit"}
 def _pick_args(args: dict, allowed: set[str]) -> dict:
     return {k: v for k, v in args.items() if k in allowed and v is not None}
 
-
+@traceable(name="execute_tool", run_type="tool")
 def execute_tool(db: Session, name: str, args: dict):
     """Run one tool and return JSON-safe result."""
     args = dict(args or {})

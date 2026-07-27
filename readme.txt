@@ -15,3 +15,16 @@
    localhost:5432
           ↑
    Python script reads CSV → INSERT
+
+
+
+
+   #############################
+
+   User chat → POST /chat → run_agent  [@traceable]
+                              │
+                              ├── wrap_openai → Groq LLM  [auto-traced]
+                              └── execute_tool              [optional @traceable]
+                                        │
+                                        ▼
+                              LangSmith cloud dashboard

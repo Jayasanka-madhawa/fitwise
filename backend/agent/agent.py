@@ -9,6 +9,9 @@ from backend.agent.prompts import SYSTEM_PROMPT
 from backend.agent.tools import TOOL_DEFINITIONS, execute_tool
 from backend.services import product_service
 
+from langsmith import traceable
+from langsmith.wrappers import wrap_openai
+
 client = OpenAI(
     api_key=os.getenv("GROQ_API_KEY"),
     base_url="https://api.groq.com/openai/v1",
@@ -204,7 +207,7 @@ def _normalize_history(history: list[dict] | None) -> list[dict]:
             normalized.append({"role": role, "content": content})
     return normalized
 
-
+@traceable(name="fitwise_agent", run_type="chain")
 def run_agent(
     db: Session,
     user_id: str,
