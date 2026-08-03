@@ -111,6 +111,64 @@ SHOPPING_HINT = re.compile(
     re.IGNORECASE,
 )
 
+GREETING_TOKENS = frozenset({
+    "hi", "hey", "hello", "howdy", "greetings", "greeting", "sup", "yo",
+    "ayubowan", "morning", "evening", "afternoon",
+})
+
+GREETING_PHRASE = re.compile(
+    r"^(?:"
+    r"(?:hi+|hey+|hello+|howdy|greetings?|sup|yo|ayubowan)"
+    r"|good\s+(?:morning|afternoon|evening)"
+    r"|what'?s\s+up"
+    r")[!.?\s]*$",
+    re.IGNORECASE,
+)
+
+GREETING_REPLY = (
+    "Ayubowan! Welcome to FitWise. How can I help you with fashion shopping today?"
+)
+
+
+def _is_greeting_token(word: str) -> bool:
+    token = word.lower()
+    if token in GREETING_TOKENS:
+        return True
+    return bool(re.fullmatch(r"hi+", token) or re.fullmatch(r"hey+", token))
+
+
+def _is_greeting(message: str) -> bool:
+    text = message.strip()
+    if not text:
+        return False
+    if GREETING_PHRASE.match(text):
+        return True
+    words = re.findall(r"[a-z]+", text.lower())
+    if not words:
+        return False
+    if not any(_is_greeting_token(w) for w in words):
+        return False
+    meaningful = [
+        w for w in words
+        if not _is_greeting_token(w) and w not in FILLER_WORDS and w not in CURRENCY_WORDS
+    ]
+    return not meaningful
+
+
+def _greeting_response() -> dict:
+    return _agent_response(GREETING_REPLY, [], [])
+
+
+def _should_run_product_search(message: str, args: dict) -> bool:
+    if _is_greeting(message):
+        return False
+    query = str(args.get("query") or "").strip().lower()
+    if not query or query in WEAK_SEARCH_QUERIES:
+        return bool(_keyword_candidates(message)) or bool(SHOPPING_HINT.search(message))
+    if _is_greeting_token(query) or _is_greeting(query):
+        return False
+    return True
+
 
 def _parse_price_number(raw: str) -> float | None:
     try:
@@ -232,6 +290,8 @@ def _parse_pseudo_tool_call(content: str) -> tuple[str, dict] | None:
 
 
 def _looks_like_product_search(message: str) -> bool:
+    if _is_greeting(message):
+        return False
     return bool(SHOPPING_HINT.search(message)) or bool(_keyword_candidates(message))
 
 
@@ -264,6 +324,11 @@ def _execute_parsed_tool(
     tools_used: list,
     products: list[dict],
 ) -> dict | None:
+    if name == "search_products" and not _should_run_product_search(message, args):
+        if _is_greeting(message):
+            return _greeting_response()
+        return None
+
     if name in {"add_to_cart", "remove_from_cart", "get_cart"}:
         args.setdefault("user_id", user_id)
 
@@ -328,11 +393,14 @@ def is_rate_limit_error(exc: Exception) -> bool:
 
 
 def _keyword_candidates(message: str) -> list[str]:
+    if _is_greeting(message):
+        return []
     words = re.findall(r"[a-z0-9]+", message.lower())
     keywords = [
         w for w in words
         if w not in FILLER_WORDS
         and w not in CURRENCY_WORDS
+        and not _is_greeting_token(w)
         and len(w) > 1
         and not w.isdigit()
     ]
@@ -392,6 +460,9 @@ def _search_fallback(
     note: str | None = None,
     history: list[dict] | None = None,
 ) -> dict:
+    if _is_greeting(query):
+        return _greeting_response()
+
     contextual = _contextual_search(db, query, history)
     if contextual:
         if note:
@@ -535,6 +606,10 @@ def run_agent(
                     return handled
             if not products and _looks_like_product_search(message):
                 return _search_fallback(db, message, history=history)
+            if _is_greeting(message) and not products:
+                if content.strip():
+                    return _agent_response(content, tools_used, products)
+                return _greeting_response()
             return _agent_response(content, tools_used, products)
 
         messages.append(msg)
@@ -544,6 +619,15 @@ def run_agent(
             args = json.loads(tool_call.function.arguments or "{}")
             if name == "search_products":
                 args = _fix_search_args(args, message, history)
+                if not _should_run_product_search(message, args):
+                    if _is_greeting(message):
+                        return _greeting_response()
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps([]),
+                    })
+                    continue
             else:
                 args = _sanitize_tool_args(args)
 
