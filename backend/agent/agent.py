@@ -20,6 +20,7 @@ MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 MAX_HISTORY_MESSAGES = 10
 MAX_HISTORY_CHARS = 400
+PRODUCTS_INDEX_MARKERS = ("[Products:", "[Products shown:")
 
 FILLER_WORDS = frozenset({
     "a", "an", "the", "for", "me", "my", "your", "we", "our", "us",
@@ -50,6 +51,121 @@ PRODUCT_TOOLS = {
     "compare_products",
     "get_product_details",
 }
+
+TOOL_NAMES = frozenset({
+    "search_products",
+    "get_product_details",
+    "get_most_reviewed_products",
+    "get_best_popular_products",
+    "compare_products",
+    "get_product_reviews",
+    "summarize_reviews",
+    "add_to_cart",
+    "remove_from_cart",
+    "get_cart",
+})
+
+SEARCH_TOOLS = frozenset({
+    "search_products",
+    "get_most_reviewed_products",
+    "get_best_popular_products",
+})
+
+PSEUDO_TOOL_PATTERNS = (
+    re.compile(
+        r"<function=(?P<name>[a-z_]+)>\s*(?P<args>\{.*\})\s*(?:</function>)?",
+        re.DOTALL | re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?P<name>search_products|get_product_details|get_most_reviewed_products|"
+        r"get_best_popular_products|compare_products|get_product_reviews|summarize_reviews|"
+        r"add_to_cart|remove_from_cart|get_cart)\s*>\s*(?P<args>\{.*\})",
+        re.DOTALL | re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?P<name>search_products|get_product_details|get_most_reviewed_products|"
+        r"get_best_popular_products|compare_products|get_product_reviews|summarize_reviews|"
+        r"add_to_cart|remove_from_cart|get_cart)\s*\(\s*(?P<args>\{.*\})\s*\)",
+        re.DOTALL | re.IGNORECASE,
+    ),
+)
+
+SHOPPING_HINT = re.compile(
+    r"\b(watch|watches|shoe|shoes|dress|shirt|shorts|bag|jewelry|jacket|"
+    r"buy|find|search|show me|looking for|want|need)\b",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_tool_args(args: dict) -> dict:
+    cleaned = dict(args or {})
+    if cleaned.get("department_final") in {None, "", "unknown"}:
+        cleaned.pop("department_final", None)
+    return cleaned
+
+
+def _parse_pseudo_tool_call(content: str) -> tuple[str, dict] | None:
+    """Groq sometimes emits tool calls as plain text instead of tool_calls."""
+    if not content:
+        return None
+    text = content.strip()
+    for pattern in PSEUDO_TOOL_PATTERNS:
+        match = pattern.search(text)
+        if not match:
+            continue
+        name = match.group("name").lower()
+        if name not in TOOL_NAMES:
+            continue
+        try:
+            args = _sanitize_tool_args(json.loads(match.group("args")))
+        except json.JSONDecodeError:
+            continue
+        return name, args
+    return None
+
+
+def _looks_like_product_search(message: str) -> bool:
+    return bool(SHOPPING_HINT.search(message)) or bool(_keyword_candidates(message))
+
+
+def _reply_after_tool(name: str, args: dict, message: str, products: list[dict]) -> str:
+    if name == "search_products":
+        query = args.get("query") or _extract_search_query(message)
+        return _format_products_reply(query, products)
+    if name in SEARCH_TOOLS:
+        return _format_products_reply(message, products)
+    if name == "compare_products" and products:
+        return f"Here is a comparison of {len(products)} products:"
+    if name == "get_product_details" and products:
+        return f"Details for {products[0].get('title', 'this product')}:"
+    return "Here's what I found:"
+
+
+def _execute_parsed_tool(
+    db: Session,
+    user_id: str,
+    name: str,
+    args: dict,
+    message: str,
+    tools_used: list,
+    products: list[dict],
+) -> dict | None:
+    if name in {"add_to_cart", "remove_from_cart", "get_cart"}:
+        args.setdefault("user_id", user_id)
+
+    result = execute_tool(db, name, args)
+    tools_used.append({"tool": name, "args": args})
+
+    if name in PRODUCT_TOOLS:
+        products[:] = _merge_products(products, _extract_products(name, result))
+
+    if name in SEARCH_TOOLS or (name in PRODUCT_TOOLS and products):
+        return _agent_response(
+            _reply_after_tool(name, args, message, products),
+            tools_used,
+            products,
+        )
+    return None
 
 
 def _extract_products(tool_name: str, result) -> list[dict]:
@@ -192,11 +308,6 @@ def _call_llm(messages: list):
     )
 
 
-MAX_HISTORY_MESSAGES = 10
-MAX_HISTORY_CHARS = 400
-PRODUCTS_INDEX_MARKERS = ("[Products:", "[Products shown:")
-
-
 def _truncate_history_content(content: str, max_chars: int) -> str:
     """Trim long replies but always keep the compact [Products: ...] index block."""
     marker_idx = -1
@@ -275,13 +386,25 @@ def run_agent(
         msg = response.choices[0].message
 
         if not msg.tool_calls:
-            return _agent_response(msg.content or "", tools_used, products)
+            content = msg.content or ""
+            parsed = _parse_pseudo_tool_call(content)
+            if parsed:
+                name, args = parsed
+                handled = _execute_parsed_tool(
+                    db, user_id, name, args, message, tools_used, products
+                )
+                if handled:
+                    return handled
+            if not products and _looks_like_product_search(message):
+                return _search_fallback(db, message)
+            return _agent_response(content, tools_used, products)
 
         messages.append(msg)
 
         for tool_call in msg.tool_calls:
             name = tool_call.function.name
             args = json.loads(tool_call.function.arguments or "{}")
+            args = _sanitize_tool_args(args)
 
             if name in {"add_to_cart", "remove_from_cart", "get_cart"}:
                 args.setdefault("user_id", user_id)

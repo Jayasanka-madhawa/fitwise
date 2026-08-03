@@ -43,9 +43,10 @@ function GoogleSignInButton({
   mode,
   disabled,
   googleClientId,
+  configError,
   onGoogleSuccess,
   onError,
-}: SocialLoginButtonsProps & { googleClientId: string }) {
+}: SocialLoginButtonsProps & { googleClientId: string; configError: boolean }) {
   const label = mode === "login" ? "Sign in with Google" : "Sign up with Google";
 
   if (!googleClientId) {
@@ -55,7 +56,9 @@ function GoogleSignInButton({
         disabled={disabled}
         onClick={() =>
           onError(
-            "Google sign-in is not configured. Add GOOGLE_CLIENT_ID to your project .env file, then restart the backend.",
+            configError
+              ? "Could not load auth config. Check that the backend is running and NEXT_PUBLIC_API_URL is correct."
+              : "Google sign-in is not configured on the server. Add GOOGLE_CLIENT_ID to .env (local) or Render environment (production), then restart the backend.",
           )
         }
         className="flex w-full items-center justify-center gap-3 rounded-md border border-slate-300 bg-white py-2.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
@@ -101,8 +104,13 @@ function GoogleSignInButton({
 function SocialButtonsInner({
   googleClientId,
   githubClientId,
+  configError,
   ...props
-}: SocialLoginButtonsProps & { googleClientId: string; githubClientId: string }) {
+}: SocialLoginButtonsProps & {
+  googleClientId: string;
+  githubClientId: string;
+  configError: boolean;
+}) {
   const { mode, disabled, onError } = props;
 
   const startGithub = () => {
@@ -121,7 +129,7 @@ function SocialButtonsInner({
 
   return (
     <div className="mt-6 space-y-3">
-      <GoogleSignInButton {...props} googleClientId={googleClientId} />
+      <GoogleSignInButton {...props} googleClientId={googleClientId} configError={configError} />
 
       {githubClientId && (
         <>
@@ -150,15 +158,17 @@ function SocialButtonsInner({
 export default function SocialLoginButtons(props: SocialLoginButtonsProps) {
   const [googleClientId, setGoogleClientId] = useState("");
   const [githubClientId, setGithubClientId] = useState("");
+  const [configError, setConfigError] = useState(false);
 
   useEffect(() => {
     fetchAuthConfig()
       .then((cfg) => {
         setGoogleClientId(cfg.google_client_id);
         setGithubClientId(cfg.github_client_id);
+        setConfigError(false);
       })
       .catch(() => {
-        /* OAuth IDs load from GET /auth/config */
+        setConfigError(true);
       });
   }, []);
 
@@ -167,6 +177,7 @@ export default function SocialLoginButtons(props: SocialLoginButtonsProps) {
       {...props}
       googleClientId={googleClientId}
       githubClientId={githubClientId}
+      configError={configError}
     />
   );
 }

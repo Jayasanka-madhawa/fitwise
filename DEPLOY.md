@@ -93,6 +93,20 @@ NEXT_PUBLIC_API_URL=https://YOUR-API.onrender.com
 
 ## Step 5 — OAuth (optional)
 
+### Google
+
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → **Create OAuth client ID** → **Web application**
+2. **Authorized JavaScript origins:**
+   - `http://localhost:3000`
+   - `https://YOUR-APP.vercel.app`
+3. Copy the **Client ID** (not the secret — Google Sign-In uses the public client ID only)
+4. Set `GOOGLE_CLIENT_ID` in:
+   - **Local:** project root `.env`
+   - **Production:** Render → fitwise-api → Environment
+5. Restart the backend (local uvicorn or Render redeploy)
+
+### GitHub
+
 Register **both** local and production URLs:
 
 | Provider | URL |
@@ -146,3 +160,5 @@ python scripts/reload_catalog.py
 | Empty products | Run `reload_catalog.py` against Neon |
 | Slow first load | Render free tier cold start (~30–60s) |
 | AI rate limit | Groq free tier; search bar still works |
+| Google sign-in not configured | Set `GOOGLE_CLIENT_ID` on Render (prod) or in `.env` (local); restart backend. Same value as in Google Cloud Console. |
+| Google works locally but not on Vercel | Add your Vercel URL to Google OAuth **Authorized JavaScript origins** |
