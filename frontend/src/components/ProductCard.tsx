@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { Product } from "@/lib/types";
-import { formatPrice, truncate } from "@/lib/api";
+import { formatPrice, toNumber, truncate } from "@/lib/api";
 
 interface ProductCardProps {
   product: Product;
@@ -13,8 +13,8 @@ interface ProductCardProps {
 
 export default function ProductCard({ product, onAddToCart, adding }: ProductCardProps) {
   const description = truncate(product.description || product.features, 100);
-  const rating = product.average_rating ?? 0;
-  const reviewCount = product.review_count ?? 0;
+  const rating = toNumber(product.average_rating);
+  const reviewCount = toNumber(product.review_count);
 
   return (
     <article className="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md">

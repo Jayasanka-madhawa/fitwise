@@ -6,7 +6,7 @@ from openai import APIStatusError, BadRequestError, OpenAI, RateLimitError
 from sqlalchemy.orm import Session
 
 from backend.agent.prompts import SYSTEM_PROMPT
-from backend.agent.tools import TOOL_DEFINITIONS, execute_tool
+from backend.agent.tools import TOOL_DEFINITIONS, _json_safe, execute_tool
 from backend.services import product_service
 
 from langsmith import traceable
@@ -84,7 +84,7 @@ def _agent_response(reply: str, tools_used: list, products: list[dict]) -> dict:
     return {
         "reply": reply,
         "tools_used": tools_used,
-        "products": products[:8],
+        "products": _json_safe(products[:8]),
     }
 
 

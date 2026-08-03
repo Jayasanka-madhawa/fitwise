@@ -7,7 +7,7 @@ import { useParams } from "next/navigation";
 import Header from "@/components/Header";
 import { useAuth } from "@/context/AuthContext";
 import { useChat } from "@/context/ChatContext";
-import { addToCart, fetchProduct, formatPrice } from "@/lib/api";
+import { addToCart, fetchProduct, formatPrice, toNumber } from "@/lib/api";
 import type { Product } from "@/lib/types";
 
 export default function ProductPage() {
@@ -85,9 +85,9 @@ export default function ProductPage() {
               )}
 
               <div className="mt-3 flex items-center gap-2 text-sm text-rose-500">
-                <span>★ {(product.average_rating ?? 0).toFixed(1)}</span>
+                <span>★ {toNumber(product.average_rating).toFixed(1)}</span>
                 <span className="text-slate-500">
-                  ({(product.review_count ?? 0).toLocaleString()} reviews)
+                  ({toNumber(product.review_count).toLocaleString()} reviews)
                 </span>
               </div>
 

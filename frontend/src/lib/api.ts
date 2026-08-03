@@ -151,6 +151,11 @@ export async function sendChatMessage(
   );
 }
 
+export function toNumber(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export function formatPrice(price: number, currency = "LKR"): string {
   return new Intl.NumberFormat("en-LK", {
     style: "currency",

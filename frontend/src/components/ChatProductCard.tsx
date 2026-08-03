@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { Product } from "@/lib/types";
-import { formatPrice } from "@/lib/api";
+import { formatPrice, toNumber } from "@/lib/api";
 
 interface ChatProductCardProps {
   product: Product;
@@ -16,8 +16,8 @@ export default function ChatProductCard({
   onAddToCart,
   adding,
 }: ChatProductCardProps) {
-  const rating = product.average_rating ?? 0;
-  const reviewCount = product.review_count ?? 0;
+  const rating = toNumber(product.average_rating);
+  const reviewCount = toNumber(product.review_count);
 
   return (
     <div className="flex gap-3 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">

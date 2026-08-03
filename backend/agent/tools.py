@@ -36,7 +36,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_products",
-            "description": "Search products by keyword, brand, department, and LKR price range.",
+            "description": "Keyword search for product types; supports brand, department, and LKR price filters. Use when the user names a product or refines an ongoing product search.",
             "parameters": _object_schema({
                 "query": {"type": "string", "description": "Search keyword e.g. shoe, dress, shorts"},
                 "department_final": {"type": "string", "description": "women, men, unisex, girls, boys"},
@@ -62,7 +62,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_most_reviewed_products",
-            "description": "Products with highest review_count. Supports LKR price filters.",
+            "description": "Rank by review_count only — no keyword search. Use when the user asks for most reviewed or top reviewed, not for refining a product-type search from chat history.",
             "parameters": _object_schema({
                 "department_final": {"type": "string"},
                 "min_price": {"type": "number", "description": "Min price in LKR"},
@@ -75,7 +75,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_best_popular_products",
-            "description": "Best popular products by popularity_score.",
+            "description": "Rank by popularity_score — no keyword search. Use when the user asks for popular or best sellers, not for refining a product-type search from chat history.",
             "parameters": _object_schema({
                 "department_final": {"type": "string"},
                 "min_reviews": {"type": "integer", "description": "Minimum reviews, default 20"},
