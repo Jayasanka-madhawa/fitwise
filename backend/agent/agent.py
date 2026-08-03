@@ -192,6 +192,31 @@ def _call_llm(messages: list):
     )
 
 
+MAX_HISTORY_MESSAGES = 10
+MAX_HISTORY_CHARS = 400
+PRODUCTS_INDEX_MARKERS = ("[Products:", "[Products shown:")
+
+
+def _truncate_history_content(content: str, max_chars: int) -> str:
+    """Trim long replies but always keep the compact [Products: ...] index block."""
+    marker_idx = -1
+    for marker in PRODUCTS_INDEX_MARKERS:
+        idx = content.find(marker)
+        if idx != -1 and (marker_idx == -1 or idx < marker_idx):
+            marker_idx = idx
+
+    if marker_idx == -1:
+        if len(content) > max_chars:
+            return content[:max_chars] + "…"
+        return content
+
+    prefix = content[:marker_idx].rstrip()
+    index_block = content[marker_idx:].strip()
+    if len(prefix) > max_chars:
+        prefix = prefix[:max_chars] + "…"
+    return f"{prefix}\n{index_block}" if prefix else index_block
+
+
 def _normalize_history(history: list[dict] | None) -> list[dict]:
     """Keep recent user/assistant turns for follow-up context."""
     if not history:
@@ -202,8 +227,7 @@ def _normalize_history(history: list[dict] | None) -> list[dict]:
         role = item.get("role")
         content = (item.get("content") or "").strip()
         if role in {"user", "assistant"} and content:
-            if len(content) > MAX_HISTORY_CHARS:
-                content = content[:MAX_HISTORY_CHARS] + "…"
+            content = _truncate_history_content(content, MAX_HISTORY_CHARS)
             normalized.append({"role": role, "content": content})
     return normalized
 

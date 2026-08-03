@@ -87,7 +87,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "compare_products",
-            "description": "Compare multiple products side by side.",
+            "description": "Compare products side by side. Requires exact product_id values from [Products: ...] in chat history — e.g. 'first two' means the ids for positions 1 and 2.",
             "parameters": _object_schema(
                 {
                     "product_ids": {

@@ -27,10 +27,10 @@ function toChatHistory(messages: ChatMessage[]): ChatHistoryItem[] {
   return messages.map((msg) => {
     let content = msg.content;
     if (msg.role === "assistant" && msg.products?.length) {
-      const productList = msg.products
-        .map((p, i) => `${i + 1}) ${p.title} (id: ${p.product_id})`)
-        .join("; ");
-      content = `${content}\n[Products shown: ${productList}]`;
+      const productIndex = msg.products
+        .map((p, i) => `${i + 1}=${p.product_id}`)
+        .join(", ");
+      content = `${content}\n[Products: ${productIndex}]`;
     }
     return { role: msg.role, content };
   });
