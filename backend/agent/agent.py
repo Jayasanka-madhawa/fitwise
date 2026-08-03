@@ -39,6 +39,21 @@ FILLER_WORDS = frozenset({
     "like", "love", "interested", "thinking", "maybe", "someone",
 })
 
+CURRENCY_WORDS = frozenset({"rs", "lkr", "lk", "rupee", "rupees"})
+
+WEAK_SEARCH_QUERIES = frozenset({"", "rs", "lkr", "product", "products", "item", "items", "thing", "things"})
+
+PRICE_UNDER = re.compile(
+    r"(?:under|below|less\s+than|max|upto|up\s+to|within)\s*"
+    r"(?:lkr|rs|lkr)?\s*([0-9][0-9,]*)",
+    re.IGNORECASE,
+)
+PRICE_OVER = re.compile(
+    r"(?:over|above|more\s+than|min|at\s+least)\s*"
+    r"(?:lkr|rs|lkr)?\s*([0-9][0-9,]*)",
+    re.IGNORECASE,
+)
+
 TOOL_RETRY_HINT = (
     "Your last tool call was invalid. Call tools with valid JSON arguments only. "
     "For keyword search use search_products with {\"query\": \"keyword\"}."
@@ -97,6 +112,98 @@ SHOPPING_HINT = re.compile(
 )
 
 
+def _parse_price_number(raw: str) -> float | None:
+    try:
+        return float(raw.replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_price_filters(message: str) -> dict:
+    filters: dict = {}
+    under = PRICE_UNDER.search(message)
+    if under:
+        value = _parse_price_number(under.group(1))
+        if value is not None:
+            filters["max_price"] = value
+    over = PRICE_OVER.search(message)
+    if over:
+        value = _parse_price_number(over.group(1))
+        if value is not None:
+            filters["min_price"] = value
+    return filters
+
+
+def _is_price_refinement(message: str) -> bool:
+    if not _extract_price_filters(message):
+        return False
+    return not _keyword_candidates(message)
+
+
+def _prior_product_query(history: list[dict] | None, exclude_message: str = "") -> str | None:
+    if not history:
+        return None
+    for item in reversed(history):
+        if item.get("role") != "user":
+            continue
+        content = (item.get("content") or "").strip()
+        if not content or content == exclude_message.strip():
+            continue
+        for keyword in _keyword_candidates(content):
+            return keyword
+    return None
+
+
+def _format_filtered_reply(query: str, products: list, filters: dict) -> str:
+    if not products:
+        if filters.get("max_price") is not None:
+            return (
+                f'No {query} found under {int(filters["max_price"]):,} LKR. '
+                "Try a higher budget or a different keyword."
+            )
+        if filters.get("min_price") is not None:
+            return f'No {query} found above {int(filters["min_price"]):,} LKR.'
+        return _format_products_reply(query, products)
+    if filters.get("max_price") is not None:
+        return f'Here are {len(products)} {query} options under {int(filters["max_price"]):,} LKR:'
+    if filters.get("min_price") is not None:
+        return f'Here are {len(products)} {query} options from {int(filters["min_price"]):,} LKR:'
+    return _format_products_reply(query, products)
+
+
+def _contextual_search(
+    db: Session,
+    message: str,
+    history: list[dict] | None,
+) -> dict | None:
+    if not _is_price_refinement(message):
+        return None
+    query = _prior_product_query(history, exclude_message=message)
+    if not query:
+        return None
+    filters = _extract_price_filters(message)
+    products = product_service.search_products(db, query=query, limit=8, **filters)
+    args = {"query": query, **filters}
+    return _agent_response(
+        _format_filtered_reply(query, products, filters),
+        [{"tool": "search_products", "args": args}],
+        products,
+    )
+
+
+def _fix_search_args(args: dict, message: str, history: list[dict] | None) -> dict:
+    args = _sanitize_tool_args(args)
+    query = str(args.get("query") or "").strip().lower()
+    if query in WEAK_SEARCH_QUERIES or query.isdigit():
+        prior = _prior_product_query(history, exclude_message=message)
+        if prior:
+            args["query"] = prior
+    price_filters = _extract_price_filters(message)
+    for key, value in price_filters.items():
+        args.setdefault(key, value)
+    return args
+
+
 def _sanitize_tool_args(args: dict) -> dict:
     cleaned = dict(args or {})
     if cleaned.get("department_final") in {None, "", "unknown"}:
@@ -131,6 +238,13 @@ def _looks_like_product_search(message: str) -> bool:
 def _reply_after_tool(name: str, args: dict, message: str, products: list[dict]) -> str:
     if name == "search_products":
         query = args.get("query") or _extract_search_query(message)
+        price_filters = {
+            k: args[k]
+            for k in ("min_price", "max_price")
+            if args.get(k) is not None
+        }
+        if price_filters:
+            return _format_filtered_reply(query, products, price_filters)
         return _format_products_reply(query, products)
     if name in SEARCH_TOOLS:
         return _format_products_reply(message, products)
@@ -215,7 +329,13 @@ def is_rate_limit_error(exc: Exception) -> bool:
 
 def _keyword_candidates(message: str) -> list[str]:
     words = re.findall(r"[a-z0-9]+", message.lower())
-    keywords = [w for w in words if w not in FILLER_WORDS and len(w) > 1]
+    keywords = [
+        w for w in words
+        if w not in FILLER_WORDS
+        and w not in CURRENCY_WORDS
+        and len(w) > 1
+        and not w.isdigit()
+    ]
     if not keywords:
         stripped = message.strip()
         return [stripped] if stripped else []
@@ -266,7 +386,18 @@ def _slim_tool_result(name: str, result) -> object:
     return result
 
 
-def _search_fallback(db: Session, query: str, note: str | None = None) -> dict:
+def _search_fallback(
+    db: Session,
+    query: str,
+    note: str | None = None,
+    history: list[dict] | None = None,
+) -> dict:
+    contextual = _contextual_search(db, query, history)
+    if contextual:
+        if note:
+            contextual["reply"] = f"{note}\n\n{contextual['reply']}"
+        return contextual
+
     candidates = _keyword_candidates(query)
     search_query = " ".join(candidates) if candidates else query.strip()
     products = product_service.search_products(db, query=search_query, limit=8)
@@ -288,7 +419,7 @@ def _search_fallback(db: Session, query: str, note: str | None = None) -> dict:
     )
 
 
-def _rate_limit_fallback(db: Session, message: str) -> dict:
+def _rate_limit_fallback(db: Session, message: str, history: list[dict] | None = None) -> dict:
     return _search_fallback(
         db,
         message,
@@ -296,6 +427,7 @@ def _rate_limit_fallback(db: Session, message: str) -> dict:
             "AI is on Groq’s daily limit — showing direct search results. "
             "Full assistant chat returns after the limit resets."
         ),
+        history=history,
     )
 
 
@@ -363,12 +495,16 @@ def run_agent(
     tools_used = []
     products: list[dict] = []
 
+    contextual = _contextual_search(db, message, history)
+    if contextual:
+        return contextual
+
     for _ in range(max_turns):
         try:
             response = _call_llm(messages)
         except Exception as exc:
             if is_rate_limit_error(exc):
-                return _rate_limit_fallback(db, message)
+                return _rate_limit_fallback(db, message, history)
             if not isinstance(exc, BadRequestError):
                 raise
             if "tool_use_failed" not in str(exc):
@@ -378,9 +514,9 @@ def run_agent(
                 response = _call_llm(messages)
             except Exception as retry_exc:
                 if is_rate_limit_error(retry_exc):
-                    return _rate_limit_fallback(db, message)
+                    return _rate_limit_fallback(db, message, history)
                 if isinstance(retry_exc, BadRequestError):
-                    return _search_fallback(db, message)
+                    return _search_fallback(db, message, history=history)
                 raise
 
         msg = response.choices[0].message
@@ -390,13 +526,15 @@ def run_agent(
             parsed = _parse_pseudo_tool_call(content)
             if parsed:
                 name, args = parsed
+                if name == "search_products":
+                    args = _fix_search_args(args, message, history)
                 handled = _execute_parsed_tool(
                     db, user_id, name, args, message, tools_used, products
                 )
                 if handled:
                     return handled
             if not products and _looks_like_product_search(message):
-                return _search_fallback(db, message)
+                return _search_fallback(db, message, history=history)
             return _agent_response(content, tools_used, products)
 
         messages.append(msg)
@@ -404,7 +542,10 @@ def run_agent(
         for tool_call in msg.tool_calls:
             name = tool_call.function.name
             args = json.loads(tool_call.function.arguments or "{}")
-            args = _sanitize_tool_args(args)
+            if name == "search_products":
+                args = _fix_search_args(args, message, history)
+            else:
+                args = _sanitize_tool_args(args)
 
             if name in {"add_to_cart", "remove_from_cart", "get_cart"}:
                 args.setdefault("user_id", user_id)
