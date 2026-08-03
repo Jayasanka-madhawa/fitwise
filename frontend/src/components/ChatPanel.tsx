@@ -61,7 +61,7 @@ export default function ChatPanel({
         <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
           {messages.length === 0 && (
             <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
-              Hi, I&apos;m FitWise. I can help you find products, compare items, summarize
+              Ayubowan! I&apos;m FitWise. I can help you find products, compare items, summarize
               reviews, and manage your cart. Try: &quot;boys shorts under 5000 LKR&quot;
             </div>
           )}
