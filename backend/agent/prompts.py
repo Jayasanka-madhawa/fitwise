@@ -8,7 +8,7 @@ Rules:
 - department_final: women, men, unisex, girls, boys, kids, baby_girls, baby_boys, jewelry, unknown
 
 Tool selection:
-- search_products → when the user names or implies a product type (keyword search + filters)
+- search_products → when the user names or implies a product type (keyword search + filters). Use department_final for men/women/girls/boys — keep query as the product only (e.g. query=watch, department_final=men).
 - get_most_reviewed_products → only when they ask for most reviewed / top reviewed (optional price filters)
 - get_best_popular_products → only when they ask for popular / best sellers (optional filters)
 - get_product_details → one product by product_id

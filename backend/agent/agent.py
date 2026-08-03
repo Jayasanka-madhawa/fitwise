@@ -41,6 +41,22 @@ FILLER_WORDS = frozenset({
 
 CURRENCY_WORDS = frozenset({"rs", "lkr", "lk", "rupee", "rupees"})
 
+DEPARTMENT_WORDS = frozenset({
+    "men", "mens", "men's", "male", "man", "for",
+    "women", "womens", "women's", "female", "woman", "ladies", "lady",
+    "girls", "girl", "boys", "boy", "unisex", "kids", "jewelry",
+})
+
+DEPARTMENT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\b(?:men'?s?|male|for\s+men)\b", re.IGNORECASE), "men"),
+    (re.compile(r"\b(?:women'?s?|female|for\s+women|ladies)\b", re.IGNORECASE), "women"),
+    (re.compile(r"\bgirls?\b", re.IGNORECASE), "girls"),
+    (re.compile(r"\bboys?\b", re.IGNORECASE), "boys"),
+    (re.compile(r"\bunisex\b", re.IGNORECASE), "unisex"),
+    (re.compile(r"\bkids?\b", re.IGNORECASE), "kids"),
+    (re.compile(r"\bjewelry\b", re.IGNORECASE), "jewelry"),
+)
+
 WEAK_SEARCH_QUERIES = frozenset({"", "rs", "lkr", "product", "products", "item", "items", "thing", "things"})
 
 PRICE_UNDER = re.compile(
@@ -249,13 +265,51 @@ def _contextual_search(
     )
 
 
+def _extract_department(message: str) -> str | None:
+    for pattern, dept in DEPARTMENT_PATTERNS:
+        if pattern.search(message):
+            return dept
+    return None
+
+
+def _clean_search_query(query: str) -> str:
+    tokens = re.findall(r"[a-z0-9']+", query.lower())
+    kept = [
+        t for t in tokens
+        if t.strip("'") not in DEPARTMENT_WORDS
+        and t not in FILLER_WORDS
+        and t not in CURRENCY_WORDS
+        and not _is_greeting_token(t)
+        and not t.isdigit()
+        and len(t.strip("'")) > 1
+    ]
+    return " ".join(kept)
+
+
+def _apply_department_to_search_args(args: dict, message: str) -> dict:
+    dept = _extract_department(message)
+    if dept:
+        args.setdefault("department_final", dept)
+    query = str(args.get("query") or "").strip()
+    if query:
+        cleaned = _clean_search_query(query)
+        if cleaned:
+            args["query"] = cleaned
+    return args
+
+
 def _fix_search_args(args: dict, message: str, history: list[dict] | None) -> dict:
     args = _sanitize_tool_args(args)
+    args = _apply_department_to_search_args(args, message)
     query = str(args.get("query") or "").strip().lower()
-    if query in WEAK_SEARCH_QUERIES or query.isdigit():
+    if query in WEAK_SEARCH_QUERIES or query.isdigit() or not query:
         prior = _prior_product_query(history, exclude_message=message)
         if prior:
             args["query"] = prior
+        elif not args.get("query"):
+            candidates = _keyword_candidates(message)
+            if candidates:
+                args["query"] = candidates[0]
     price_filters = _extract_price_filters(message)
     for key, value in price_filters.items():
         args.setdefault(key, value)
@@ -400,6 +454,7 @@ def _keyword_candidates(message: str) -> list[str]:
         w for w in words
         if w not in FILLER_WORDS
         and w not in CURRENCY_WORDS
+        and w.strip("'") not in DEPARTMENT_WORDS
         and not _is_greeting_token(w)
         and len(w) > 1
         and not w.isdigit()
@@ -470,12 +525,22 @@ def _search_fallback(
         return contextual
 
     candidates = _keyword_candidates(query)
-    search_query = " ".join(candidates) if candidates else query.strip()
-    products = product_service.search_products(db, query=search_query, limit=8)
+    search_query = " ".join(candidates) if candidates else _clean_search_query(query)
+    dept = _extract_department(query)
+    search_kwargs: dict = {"query": search_query or None, "limit": 8}
+    if dept:
+        search_kwargs["department_final"] = dept
+    if not search_kwargs.get("query") and not dept:
+        search_query = query.strip()
+        search_kwargs["query"] = search_query
+
+    products = product_service.search_products(db, **search_kwargs)
 
     if not products and candidates:
         for kw in candidates:
-            products = product_service.search_products(db, query=kw, limit=8)
+            products = product_service.search_products(db, query=kw, limit=8, **(
+                {"department_final": dept} if dept else {}
+            ))
             if products:
                 search_query = kw
                 break
@@ -483,9 +548,10 @@ def _search_fallback(
     reply = _format_products_reply(search_query, products)
     if note:
         reply = f"{note}\n\n{reply}"
+    tool_args = {"query": search_query, **({"department_final": dept} if dept else {})}
     return _agent_response(
         reply,
-        [{"tool": "search_products", "args": {"query": search_query}}],
+        [{"tool": "search_products", "args": tool_args}],
         products,
     )
 

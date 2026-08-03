@@ -72,7 +72,7 @@ def search_products(
         SELECT {PRODUCT_COLUMNS}
         FROM products
         WHERE {where_clause}
-        ORDER BY popularity_score DESC NULLS LAST
+        ORDER BY review_count DESC NULLS LAST, popularity_score DESC NULLS LAST
         LIMIT :limit OFFSET :offset
     """)
     rows = db.execute(sql, params).fetchall()
